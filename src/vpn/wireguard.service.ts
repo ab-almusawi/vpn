@@ -61,15 +61,32 @@ PersistentKeepalive = 25`;
     try {
       const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
       
-      const peerConfig = `[Peer]
-PublicKey = ${client.publicKey}
+      if (!client.publicKey || client.publicKey.trim() === '') {
+        throw new Error('Client public key is missing or empty');
+      }
+
+      const peerConfig = `
+[Peer]
+PublicKey = ${client.publicKey.trim()}
 AllowedIPs = ${client.vpnIp}/32`;
 
       const configPath = this.configService.get('WIREGUARD_CONFIG_PATH', '/etc/wireguard');
       const configFile = path.join(configPath, `${interface$}.conf`);
 
-              await appendFile(configFile, '\n' + peerConfig + '\n');
+      // Read current config to check for duplicates
+      try {
+        const currentConfig = await readFile(configFile, 'utf8');
+        if (currentConfig.includes(`PublicKey = ${client.publicKey.trim()}`)) {
+          console.log(`Peer with public key ${client.publicKey.trim()} already exists, skipping add`);
+          return;
+        }
+      } catch (error) {
+        console.warn('Could not read current config for duplicate check:', error.message);
+      }
 
+      await appendFile(configFile, peerConfig);
+
+      // Sync the configuration
       await execAsync(`bash -c "wg syncconf ${interface$} <(wg-quick strip ${interface$})"`);
       
       console.log(`Added peer for client ${client.deviceId} with IP ${client.vpnIp}`);
@@ -83,8 +100,19 @@ AllowedIPs = ${client.vpnIp}/32`;
     try {
       const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
       
-      await execAsync(`wg set ${interface$} peer ${client.publicKey} remove`);
+      if (!client.publicKey || client.publicKey.trim() === '') {
+        console.warn(`No public key found for client ${client.deviceId}, skipping peer removal`);
+        return;
+      }
+
+      // Remove from running configuration first
+      try {
+        await execAsync(`wg set ${interface$} peer ${client.publicKey.trim()} remove`);
+      } catch (error) {
+        console.warn(`Peer ${client.publicKey.trim()} not found in running config:`, error.message);
+      }
       
+      // Remove from config file
       await this.updateConfigFile(client, 'remove');
       
       console.log(`Removed peer for client ${client.deviceId}`);
@@ -138,39 +166,60 @@ AllowedIPs = ${client.vpnIp}/32`;
       const configPath = this.configService.get('WIREGUARD_CONFIG_PATH', '/etc/wireguard');
       const configFile = path.join(configPath, `${interface$}.conf`);
 
-                const content = await readFile(configFile, 'utf8');
+      const content = await readFile(configFile, 'utf8');
       const lines = content.split('\n');
 
       if (action === 'remove') {
         let inPeerSection = false;
         let peerToRemove = false;
+        let skipEmptyLines = false;
         const filteredLines = [];
 
-        for (const line of lines) {
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          
           if (line.startsWith('[Peer]')) {
             inPeerSection = true;
             peerToRemove = false;
+            skipEmptyLines = false;
           } else if (line.startsWith('[') && !line.startsWith('[Peer]')) {
             inPeerSection = false;
             peerToRemove = false;
+            skipEmptyLines = false;
           }
 
-          if (inPeerSection && line.includes(`PublicKey = ${client.publicKey}`)) {
+          if (inPeerSection && line.includes(`PublicKey = ${client.publicKey.trim()}`)) {
             peerToRemove = true;
+            skipEmptyLines = true;
           }
 
-          if (!peerToRemove || !inPeerSection) {
-            filteredLines.push(line);
-          } else if (peerToRemove && line.trim() === '') {
-            peerToRemove = false;
-            inPeerSection = false;
+          // Skip the entire peer section if it's marked for removal
+          if (peerToRemove && inPeerSection) {
+            // Skip this line and continue to next section
+            continue;
           }
+
+          // Skip trailing empty lines after removed peer
+          if (skipEmptyLines && line.trim() === '') {
+            continue;
+          } else if (line.trim() !== '') {
+            skipEmptyLines = false;
+          }
+
+          filteredLines.push(line);
         }
 
-                  await writeFile(configFile, filteredLines.join('\n'));
+        // Clean up trailing empty lines
+        while (filteredLines.length > 0 && filteredLines[filteredLines.length - 1].trim() === '') {
+          filteredLines.pop();
+        }
+
+        await writeFile(configFile, filteredLines.join('\n') + '\n');
+        console.log(`Updated config file: removed peer with public key ${client.publicKey.trim()}`);
       }
     } catch (error) {
       console.error('Failed to update config file:', error);
+      throw error;
     }
   }
 
@@ -258,5 +307,57 @@ AllowedIPs = ${client.vpnIp}/32`;
         errors,
       };
     }
+  }
+
+  async validateWireGuardConfig(): Promise<{ isValid: boolean; errors: string[] }> {
+    const errors: string[] = [];
+    
+    try {
+      const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
+      const configPath = this.configService.get('WIREGUARD_CONFIG_PATH', '/etc/wireguard');
+      const configFile = path.join(configPath, `${interface$}.conf`);
+
+      // Check if config file exists
+      try {
+        const content = await readFile(configFile, 'utf8');
+        
+        // Basic validation: check for interface section
+        if (!content.includes('[Interface]')) {
+          errors.push('Config file is missing [Interface] section');
+        }
+
+        // Check for private key in interface
+        if (!content.includes('PrivateKey =')) {
+          errors.push('Interface section is missing PrivateKey');
+        }
+
+        // Validate peer sections
+        const peerSections = content.split('[Peer]').slice(1);
+        for (let i = 0; i < peerSections.length; i++) {
+          const peer = peerSections[i];
+          if (!peer.includes('PublicKey =')) {
+            errors.push(`Peer section ${i + 1} is missing PublicKey`);
+          }
+        }
+
+        // Test if config can be parsed by WireGuard
+        try {
+          await execAsync(`wg-quick strip ${interface$}`);
+        } catch (error) {
+          errors.push(`WireGuard config validation failed: ${error.message}`);
+        }
+
+      } catch (error) {
+        errors.push(`Cannot read config file: ${error.message}`);
+      }
+
+    } catch (error) {
+      errors.push(`Config validation error: ${error.message}`);
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
   }
 }

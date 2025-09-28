@@ -167,4 +167,23 @@ export class VpnController {
   async verifyServerConfiguration() {
     return await this.wireguardService.verifyServerConfiguration();
   }
+
+  @Get('validate-config')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Validate WireGuard configuration file',
+    description: 'Check if the WireGuard configuration file is valid and properly formatted'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Configuration validation results',
+    example: {
+      isValid: true,
+      errors: []
+    }
+  })
+  async validateWireGuardConfig() {
+    return await this.wireguardService.validateWireGuardConfig();
+  }
 }
