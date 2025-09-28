@@ -38,8 +38,13 @@ export class WireguardService {
     const serverPublicKey = await this.getServerPublicKey();
     const serverEndpoint = `${this.configService.get('VPN_SERVER_PUBLIC_IP')}:${this.configService.get('VPN_SERVER_PORT', 51820)}`;
 
+    // If no private key stored (client-side key generation), provide template
+    const privateKeyLine = client.privateKey 
+      ? `PrivateKey = ${client.privateKey}` 
+      : `# PrivateKey = YOUR_PRIVATE_KEY_HERE`;
+
     const config = `[Interface]
-PrivateKey = ${client.privateKey}
+${privateKeyLine}
 Address = ${client.vpnIp}/16
 DNS = 8.8.8.8, 8.8.4.4
 
@@ -89,7 +94,7 @@ AllowedIPs = ${client.vpnIp}/32`;
     }
   }
 
-  private async getServerPublicKey(): Promise<string> {
+  async getServerPublicKey(): Promise<string> {
     try {
       const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
       

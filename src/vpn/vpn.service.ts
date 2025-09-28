@@ -17,6 +17,52 @@ export class VpnService {
     private geolocationService: GeolocationService,
   ) {}
 
+  async registerClientWithPublicKey(createClientDto: CreateClientDto) {
+    if (!createClientDto.deviceId) {
+      throw new BadRequestException('Device ID is required');
+    }
+
+    if (!createClientDto.publicKey) {
+      throw new BadRequestException('Public key is required for secure registration');
+    }
+
+    // Check if client already exists
+    let client = await this.clientRepository.findOne({
+      where: { deviceId: createClientDto.deviceId },
+    });
+
+    if (client) {
+      // Update existing client
+      client = await this.updateClientInfo(client, createClientDto);
+    } else {
+      // Create new client with provided public key
+      client = await this.createNewClient(createClientDto);
+    }
+
+    const serverPublicKey = await this.wireguardService.getServerPublicKey();
+    const serverEndpoint = `${this.configService.get('VPN_SERVER_PUBLIC_IP')}:${this.configService.get('VPN_SERVER_PORT', 51820)}`;
+    const configTemplate = await this.wireguardService.generateClientConfig(client);
+
+    return {
+      success: true,
+      clientInfo: {
+        deviceId: client.deviceId,
+        deviceName: client.deviceName,
+        vpnIp: client.vpnIp,
+        country: client.country,
+        city: client.city,
+      },
+      serverConfig: {
+        serverPublicKey,
+        serverEndpoint,
+        assignedIp: client.vpnIp,
+        dns: '8.8.8.8, 8.8.4.4',
+      },
+      configTemplate,
+      instructions: 'Use your private key with this configuration to connect to the VPN.'
+    };
+  }
+
   async getOrCreateClientConfig(createClientDto: CreateClientDto) {
     if (!createClientDto.deviceId) {
       throw new BadRequestException('Device ID is required');
@@ -48,7 +94,24 @@ export class VpnService {
   }
 
   private async createNewClient(createClientDto: CreateClientDto): Promise<Client> {
-    const { publicKey, privateKey, presharedKey } = await this.wireguardService.generateKeyPair();
+    let publicKey: string;
+    let privateKey: string;
+    let presharedKey: string;
+
+    if (createClientDto.publicKey) {
+      // Client provided their public key (preferred approach)
+      publicKey = createClientDto.publicKey;
+      privateKey = ''; // Client keeps their private key
+      const { presharedKey: generatedPsk } = await this.wireguardService.generateKeyPair();
+      presharedKey = generatedPsk;
+    } else {
+      // Fallback: Generate keys server-side
+      const keyPair = await this.wireguardService.generateKeyPair();
+      publicKey = keyPair.publicKey;
+      privateKey = keyPair.privateKey;
+      presharedKey = keyPair.presharedKey;
+    }
+
     const vpnIp = await this.getNextAvailableIp();
     const location = await this.geolocationService.getLocationByIp(createClientDto.realIp);
 
@@ -103,10 +166,10 @@ export class VpnService {
 
     const usedIps = new Set(existingIps.map(client => client.vpnIp));
 
-    // Use 10.0.0.0/16 subnet to support 65k+ clients
+    // Use 172.16.0.0/16 subnet to match existing WireGuard setup
     for (let subnet = 0; subnet <= 255; subnet++) {
       for (let host = (subnet === 0 ? 2 : 1); host <= 254; host++) {
-        const ip = `10.0.${subnet}.${host}`;
+        const ip = `172.16.${subnet}.${host}`;
         if (!usedIps.has(ip)) {
           return ip;
         }
