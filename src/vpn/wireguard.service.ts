@@ -60,7 +60,7 @@ AllowedIPs = ${client.vpnIp}/32`;
 
       await fs.appendFile(configFile, '\n' + peerConfig + '\n');
 
-      await execAsync(`wg syncconf ${interface$} <(wg-quick strip ${interface$})`);
+      await execAsync(`bash -c "wg syncconf ${interface$} <(wg-quick strip ${interface$})"`);
       
       console.log(`Added peer for client ${client.deviceId} with IP ${client.vpnIp}`);
     } catch (error) {

@@ -39,6 +39,56 @@ export class ClientsController {
     return await this.clientsService.getAllClients();
   }
 
+  @Get('search')
+  @ApiOperation({
+    summary: 'Search clients',
+    description: 'Search clients by device name, country, or IP'
+  })
+  @ApiQuery({
+    name: 'q',
+    description: 'Search query',
+    required: true,
+    example: 'iPhone'
+  })
+  @ApiQuery({
+    name: 'filter',
+    description: 'Filter by status',
+    required: false,
+    example: 'active'
+  })
+  async searchClients(
+    @Query('q') query: string,
+    @Query('filter') filter?: string
+  ) {
+    return await this.clientsService.searchClients(query, filter);
+  }
+
+  @Get('stats/overview')
+  @ApiOperation({
+    summary: 'Get client statistics overview',
+    description: 'Retrieves overview statistics about VPN clients'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Statistics retrieved successfully',
+    example: {
+      totalClients: 25,
+      activeClients: 20,
+      inactiveClients: 5,
+      clientsByCountry: {
+        'United States': 10,
+        'Canada': 5,
+        'United Kingdom': 5,
+        'Germany': 3,
+        'Unknown': 2
+      },
+      recentClients: []
+    }
+  })
+  async getClientsOverview() {
+    return await this.clientsService.getClientsOverview();
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Get client by ID',
@@ -78,32 +128,6 @@ export class ClientsController {
   async deactivateClient(@Param('deviceId') deviceId: string) {
     await this.clientsService.deactivateClient(deviceId);
     return { success: true, message: 'Client deactivated successfully' };
-  }
-
-  @Get('stats/overview')
-  @ApiOperation({
-    summary: 'Get client statistics overview',
-    description: 'Retrieves overview statistics about VPN clients'
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Statistics retrieved successfully',
-    example: {
-      totalClients: 25,
-      activeClients: 20,
-      inactiveClients: 5,
-      clientsByCountry: {
-        'United States': 10,
-        'Canada': 5,
-        'United Kingdom': 5,
-        'Germany': 3,
-        'Unknown': 2
-      },
-      recentClients: []
-    }
-  })
-  async getClientsOverview() {
-    return await this.clientsService.getClientsOverview();
   }
 
   @Post()
@@ -149,30 +173,6 @@ export class ClientsController {
   async activateClient(@Param('id') id: string) {
     await this.clientsService.activateClient(id);
     return { success: true, message: 'Client activated successfully' };
-  }
-
-  @Get('search')
-  @ApiOperation({
-    summary: 'Search clients',
-    description: 'Search clients by device name, country, or IP'
-  })
-  @ApiQuery({
-    name: 'q',
-    description: 'Search query',
-    required: true,
-    example: 'iPhone'
-  })
-  @ApiQuery({
-    name: 'filter',
-    description: 'Filter by status',
-    required: false,
-    example: 'active'
-  })
-  async searchClients(
-    @Query('q') query: string,
-    @Query('filter') filter?: string
-  ) {
-    return await this.clientsService.searchClients(query, filter);
   }
 
   @Delete('bulk')
