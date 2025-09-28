@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Body, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Body, Query, Req, UseGuards, BadRequestException, Param } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { Request } from 'express';
 import { VpnService } from './vpn.service';
 import { WireguardService } from './wireguard.service';
 import { CreateClientDto } from '../shared/dto/create-client.dto';
+import { FixKeyMismatchDto, UpdatePublicKeyDto } from '../shared/dto/fix-key-mismatch.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('vpn')
@@ -162,5 +163,101 @@ export class VpnController {
   })
   async verifyServerConfiguration() {
     return await this.wireguardService.verifyServerConfiguration();
+  }
+
+  @Post('fix-key-mismatch')
+  @ApiOperation({
+    summary: 'Fix client key mismatch',
+    description: 'Remove old peer and add new peer with updated public key for existing client'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Key mismatch fixed successfully',
+    example: {
+      success: true,
+      message: 'Key mismatch fixed successfully. Old peer removed and new peer added.',
+      clientInfo: {
+        deviceId: 'android_honorrmo-n21_goovi.almusawi.vpn',
+        deviceName: 'HONOR RMO-NX1',
+        vpnIp: '172.16.0.2',
+        country: 'Iraq',
+        city: 'Amarah'
+      },
+      serverConfig: {
+        serverPublicKey: 'CgZ3xhsR5w76yxQO4lHZGTaKh+R+wqgQA9HCPM8JQD4=',
+        serverEndpoint: '81.30.161.139:51820',
+        assignedIp: '172.16.0.2',
+        dns: '8.8.8.8, 8.8.4.4'
+      },
+      configTemplate: '[Interface]\n# Add your private key here\nAddress = 172.16.0.2/16\n...'
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Client not found or invalid public key'
+  })
+  async fixKeyMismatch(@Body() fixKeyMismatchDto: FixKeyMismatchDto) {
+    return await this.vpnService.fixKeyMismatch(
+      fixKeyMismatchDto.deviceId,
+      fixKeyMismatchDto.newPublicKey
+    );
+  }
+
+  @Put('clients/:deviceId/public-key')
+  @ApiParam({
+    name: 'deviceId',
+    description: 'Device identifier',
+    example: 'android_honorrmo-n21_goovi.almusawi.vpn'
+  })
+  @ApiOperation({
+    summary: 'Update client public key',
+    description: 'Update a client\'s public key and refresh server peer configuration'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Client public key updated successfully',
+    example: {
+      id: 'uuid-here',
+      deviceId: 'android_honorrmo-n21_goovi.almusawi.vpn',
+      deviceName: 'HONOR RMO-NX1',
+      vpnIp: '172.16.0.2',
+      isActive: true
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Client not found or invalid public key'
+  })
+  async updateClientPublicKey(
+    @Param('deviceId') deviceId: string,
+    @Body() updatePublicKeyDto: UpdatePublicKeyDto
+  ) {
+    return await this.vpnService.updateClientPublicKey(deviceId, updatePublicKeyDto.publicKey);
+  }
+
+  @Post('clients/:deviceId/remove-peer')
+  @ApiParam({
+    name: 'deviceId',
+    description: 'Device identifier',
+    example: 'android_honorrmo-n21_goovi.almusawi.vpn'
+  })
+  @ApiOperation({
+    summary: 'Remove client peer from server',
+    description: 'Remove a client\'s peer from the WireGuard server and mark client as inactive'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Client peer removed successfully',
+    example: {
+      success: true,
+      message: 'Peer for client android_honorrmo-n21_goovi.almusawi.vpn removed successfully'
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - Client not found'
+  })
+  async removeClientPeer(@Param('deviceId') deviceId: string) {
+    return await this.vpnService.removeClientPeer(deviceId);
   }
 }
