@@ -16,27 +16,35 @@ export class VpnController {
 
     @Post('register')
   @ApiOperation({
-    summary: 'Register VPN client with public key (RECOMMENDED)',
-    description: 'Client provides their public key for secure registration'
+    summary: 'Register VPN client with server-generated keys',
+    description: 'Server generates WireGuard keys for the client and returns complete VPN configuration'
   })
   @ApiResponse({
     status: 201,
-    description: 'Client registered successfully',
+    description: 'Client registered successfully with generated keys',
     example: {
       success: true,
+      isNewClient: true,
       clientInfo: {
-        deviceId: 'device_12345_android',
-        vpnIp: '172.16.0.100',
+        deviceId: 'android_honorrmo-n21_goovi.almusawi.vpn',
+        deviceName: 'HONOR RMO-NX1',
+        vpnIp: '172.16.0.2',
         country: 'Iraq',
         city: 'Amarah'
       },
       serverConfig: {
         serverPublicKey: 'CgZ3xhsR5w76yxQO4lHZGTaKh+R+wqgQA9HCPM8JQD4=',
         serverEndpoint: '81.30.161.139:51820',
-        assignedIp: '172.16.0.100',
+        assignedIp: '172.16.0.2',
         dns: '8.8.8.8, 8.8.4.4'
       },
-      configTemplate: '[Interface]\n# Add your private key here\nAddress = 172.16.0.100/16\nDNS = 8.8.8.8\n\n[Peer]\nPublicKey = M7XYM12p...\n...'
+      clientKeys: {
+        privateKey: 'iPbR70lgp09QQ9GS/BQE1FVmSLI2H/F9qavzBUpV9X0=',
+        publicKey: 'CZiCVeZpKH97PNrY/1rodYAPeLDF3AaPrxFo+gOnLx8=',
+        presharedKey: 'DummyPresharedKey+development+use+only+key+here='
+      },
+      configTemplate: '[Interface]\nPrivateKey = iPbR70lgp09QQ9GS/BQE1FVmSLI2H/F9qavzBUpV9X0=\nAddress = 172.16.0.2/16\nDNS = 8.8.8.8, 8.8.4.4\n\n[Peer]\nPublicKey = CgZ3xhsR5w76yxQO4lHZGTaKh+R+wqgQA9HCPM8JQD4=\nEndpoint = 81.30.161.139:51820\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = 25',
+      instructions: 'Use the provided private key with this configuration to connect to the VPN.'
     }
   })
   async registerClient(
@@ -46,11 +54,7 @@ export class VpnController {
     const realIp = this.extractClientIp(request);
     createClientDto.realIp = realIp;
 
-    if (!createClientDto.publicKey) {
-      throw new BadRequestException('Public key is required for client registration');
-    }
-
-    return await this.vpnService.registerClientWithPublicKey(createClientDto);
+    return await this.vpnService.registerClient(createClientDto);
   }
 
   @Get('get-config')

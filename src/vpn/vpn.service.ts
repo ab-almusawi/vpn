@@ -17,13 +17,9 @@ export class VpnService {
     private geolocationService: GeolocationService,
   ) {}
 
-  async registerClientWithPublicKey(createClientDto: CreateClientDto) {
+  async registerClient(createClientDto: CreateClientDto) {
     if (!createClientDto.deviceId) {
       throw new BadRequestException('Device ID is required');
-    }
-
-    if (!createClientDto.publicKey) {
-      throw new BadRequestException('Public key is required for secure registration');
     }
 
     // Check if client already exists
@@ -31,12 +27,16 @@ export class VpnService {
       where: { deviceId: createClientDto.deviceId },
     });
 
+    let isNewClient = false;
     if (client) {
-      // Update existing client
+      // Update existing client info but regenerate keys
       client = await this.updateClientInfo(client, createClientDto);
+      // Regenerate keys for existing client
+      await this.regenerateClientKeys(client);
     } else {
-      // Create new client with provided public key
+      // Create new client with server-generated keys
       client = await this.createNewClient(createClientDto);
+      isNewClient = true;
     }
 
     const serverPublicKey = await this.wireguardService.getServerPublicKey();
@@ -45,6 +45,7 @@ export class VpnService {
 
     return {
       success: true,
+      isNewClient,
       clientInfo: {
         deviceId: client.deviceId,
         deviceName: client.deviceName,
@@ -58,8 +59,13 @@ export class VpnService {
         assignedIp: client.vpnIp,
         dns: '8.8.8.8, 8.8.4.4',
       },
+      clientKeys: {
+        privateKey: client.privateKey,
+        publicKey: client.publicKey,
+        presharedKey: client.presharedKey,
+      },
       configTemplate,
-      instructions: 'Use your private key with this configuration to connect to the VPN.'
+      instructions: 'Use the provided private key with this configuration to connect to the VPN.'
     };
   }
 
@@ -94,24 +100,9 @@ export class VpnService {
   }
 
   private async createNewClient(createClientDto: CreateClientDto): Promise<Client> {
-    let publicKey: string;
-    let privateKey: string;
-    let presharedKey: string;
-
-    if (createClientDto.publicKey) {
-      // Client provided their public key (preferred approach)
-      publicKey = createClientDto.publicKey;
-      privateKey = ''; // Client keeps their private key
-      const { presharedKey: generatedPsk } = await this.wireguardService.generateKeyPair();
-      presharedKey = generatedPsk;
-    } else {
-      // Fallback: Generate keys server-side
-      const keyPair = await this.wireguardService.generateKeyPair();
-      publicKey = keyPair.publicKey;
-      privateKey = keyPair.privateKey;
-      presharedKey = keyPair.presharedKey;
-    }
-
+    // Always generate keys server-side
+    const keyPair = await this.wireguardService.generateKeyPair();
+    
     const vpnIp = await this.getNextAvailableIp();
     const location = await this.geolocationService.getLocationByIp(createClientDto.realIp);
 
@@ -122,14 +113,39 @@ export class VpnService {
       country: location.country,
       city: location.city,
       vpnIp,
-      publicKey,
-      privateKey,
-      presharedKey,
+      publicKey: keyPair.publicKey,
+      privateKey: keyPair.privateKey,
+      presharedKey: keyPair.presharedKey,
       isActive: true,
     });
 
     const savedClient = await this.clientRepository.save(client);
 
+    await this.wireguardService.addPeerToServer(savedClient);
+
+    return savedClient;
+  }
+
+  private async regenerateClientKeys(client: Client): Promise<Client> {
+    // Remove old peer from server
+    try {
+      await this.wireguardService.removePeerFromServer(client);
+    } catch (error) {
+      console.warn(`Failed to remove old peer: ${error.message}`);
+    }
+
+    // Generate new keys
+    const keyPair = await this.wireguardService.generateKeyPair();
+    
+    // Update client with new keys
+    client.publicKey = keyPair.publicKey;
+    client.privateKey = keyPair.privateKey;
+    client.presharedKey = keyPair.presharedKey;
+    client.updatedAt = new Date();
+
+    const savedClient = await this.clientRepository.save(client);
+
+    // Add new peer to server
     await this.wireguardService.addPeerToServer(savedClient);
 
     return savedClient;
