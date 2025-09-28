@@ -1,10 +1,14 @@
-import { Controller, Get, Post, Delete, Body, Param, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import { Controller, Get, Post, Delete, Put, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from '../shared/dto/create-client.dto';
+import { UpdateClientDto } from '../shared/dto/update-client.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('clients')
 @Controller('clients')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class ClientsController {
   constructor(private readonly clientsService: ClientsService) {}
 
@@ -100,5 +104,89 @@ export class ClientsController {
   })
   async getClientsOverview() {
     return await this.clientsService.getClientsOverview();
+  }
+
+  @Post()
+  @ApiOperation({
+    summary: 'Create new client manually',
+    description: 'Manually create a new VPN client with specified details'
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Client created successfully'
+  })
+  async createClient(@Body() createClientDto: CreateClientDto) {
+    return await this.clientsService.createClient(createClientDto);
+  }
+
+  @Put(':id')
+  @ApiOperation({
+    summary: 'Update client details',
+    description: 'Update client information and settings'
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Client UUID',
+    example: 'uuid-here'
+  })
+  async updateClient(
+    @Param('id') id: string,
+    @Body() updateClientDto: UpdateClientDto
+  ) {
+    return await this.clientsService.updateClient(id, updateClientDto);
+  }
+
+  @Put(':id/activate')
+  @ApiOperation({
+    summary: 'Reactivate client',
+    description: 'Reactivate a previously deactivated client'
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Client UUID',
+    example: 'uuid-here'
+  })
+  async activateClient(@Param('id') id: string) {
+    await this.clientsService.activateClient(id);
+    return { success: true, message: 'Client activated successfully' };
+  }
+
+  @Get('search')
+  @ApiOperation({
+    summary: 'Search clients',
+    description: 'Search clients by device name, country, or IP'
+  })
+  @ApiQuery({
+    name: 'q',
+    description: 'Search query',
+    required: true,
+    example: 'iPhone'
+  })
+  @ApiQuery({
+    name: 'filter',
+    description: 'Filter by status',
+    required: false,
+    example: 'active'
+  })
+  async searchClients(
+    @Query('q') query: string,
+    @Query('filter') filter?: string
+  ) {
+    return await this.clientsService.searchClients(query, filter);
+  }
+
+  @Delete('bulk')
+  @ApiOperation({
+    summary: 'Bulk deactivate clients',
+    description: 'Deactivate multiple clients at once'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Clients deactivated successfully'
+  })
+  async bulkDeactivateClients(@Body() body: { clientIds: string[] }) {
+    const { clientIds } = body;
+    await this.clientsService.bulkDeactivateClients(clientIds);
+    return { success: true, message: `${clientIds.length} clients deactivated` };
   }
 }

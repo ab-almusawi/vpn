@@ -167,6 +167,85 @@ export class ClientsService {
     }
   }
 
+  async createClient(createClientDto: any): Promise<Client> {
+    const { deviceId, deviceName, realIp } = createClientDto;
+    
+    const existingClient = await this.clientRepository.findOne({
+      where: { deviceId }
+    });
+
+    if (existingClient) {
+      throw new Error('Client with this device ID already exists');
+    }
+
+    // This would typically be handled by the VPN service
+    // For now, just create the client record
+    const client = this.clientRepository.create({
+      deviceId,
+      deviceName,
+      realIp,
+      vpnIp: '10.0.0.100', // Placeholder
+      publicKey: 'placeholder-key',
+      privateKey: 'placeholder-key',
+      isActive: true,
+    });
+
+    return await this.clientRepository.save(client);
+  }
+
+  async updateClient(id: string, updateClientDto: any): Promise<Client> {
+    const client = await this.getClientById(id);
+    
+    Object.assign(client, updateClientDto);
+    return await this.clientRepository.save(client);
+  }
+
+  async activateClient(id: string): Promise<void> {
+    const client = await this.getClientById(id);
+    client.isActive = true;
+    await this.clientRepository.save(client);
+  }
+
+  async searchClients(query: string, filter?: string): Promise<Client[]> {
+    const queryBuilder = this.clientRepository.createQueryBuilder('client');
+    
+    queryBuilder.where(
+      '(client.deviceName ILIKE :query OR client.country ILIKE :query OR client.city ILIKE :query OR client.realIp ILIKE :query)',
+      { query: `%${query}%` }
+    );
+
+    if (filter === 'active') {
+      queryBuilder.andWhere('client.isActive = :isActive', { isActive: true });
+    } else if (filter === 'inactive') {
+      queryBuilder.andWhere('client.isActive = :isActive', { isActive: false });
+    }
+
+    return await queryBuilder
+      .select([
+        'client.id',
+        'client.deviceId',
+        'client.deviceName',
+        'client.realIp',
+        'client.country',
+        'client.city',
+        'client.vpnIp',
+        'client.isActive',
+        'client.lastHandshake',
+        'client.createdAt'
+      ])
+      .orderBy('client.createdAt', 'DESC')
+      .getMany();
+  }
+
+  async bulkDeactivateClients(clientIds: string[]): Promise<void> {
+    await this.clientRepository
+      .createQueryBuilder()
+      .update(Client)
+      .set({ isActive: false })
+      .where('id IN (:...clientIds)', { clientIds })
+      .execute();
+  }
+
   private parseBytesString(bytesStr: string): number {
     const units = {
       'B': 1,

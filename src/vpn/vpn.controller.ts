@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Body, Query, Req } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
 import { VpnService } from './vpn.service';
 import { CreateClientDto } from '../shared/dto/create-client.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('vpn')
 @Controller('vpn')
@@ -64,5 +65,32 @@ export class VpnController {
            request.connection?.remoteAddress || 
            request.ip ||
            '127.0.0.1';
+  }
+
+  @Get('server-stats')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get WireGuard server statistics',
+    description: 'Retrieve detailed WireGuard server statistics and peer information'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Server statistics retrieved successfully',
+    example: {
+      interface: 'wg0',
+      totalPeers: 25,
+      peers: [
+        {
+          publicKey: 'ABC123...',
+          lastHandshake: '2 minutes ago',
+          bytesReceived: '1.2 MB',
+          bytesSent: '890 KB'
+        }
+      ]
+    }
+  })
+  async getServerStats() {
+    return await this.vpnService.getServerStats();
   }
 }

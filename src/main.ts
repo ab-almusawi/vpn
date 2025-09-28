@@ -11,8 +11,6 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: true,
     }),
   );
 
@@ -26,9 +24,11 @@ async function bootstrap() {
     .setTitle('VPN Backend API')
     .setDescription('NestJS backend for WireGuard VPN server management')
     .setVersion('1.0')
-    .addTag('health')
-    .addTag('vpn')
-    .addTag('clients')
+    .addTag('auth', 'Authentication endpoints')
+    .addTag('health', 'System health monitoring')
+    .addTag('vpn', 'VPN configuration management')
+    .addTag('clients', 'Client management (Admin only)')
+    .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

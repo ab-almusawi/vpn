@@ -35,7 +35,7 @@ export class WireguardService {
 
     const config = `[Interface]
 PrivateKey = ${client.privateKey}
-Address = ${client.vpnIp}/24
+Address = ${client.vpnIp}/16
 DNS = 8.8.8.8, 8.8.4.4
 
 [Peer]

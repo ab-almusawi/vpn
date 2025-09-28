@@ -128,7 +128,7 @@ The client app receives a complete WireGuard configuration that can be directly 
 ```ini
 [Interface]
 PrivateKey = CLIENT_PRIVATE_KEY_HERE
-Address = 10.0.0.2/24
+Address = 10.0.0.2/16
 DNS = 8.8.8.8, 8.8.4.4
 
 [Peer]
@@ -222,7 +222,7 @@ wg genkey | tee server_private_key | wg pubkey > server_public_key
 ```ini
 [Interface]
 PrivateKey = SERVER_PRIVATE_KEY_HERE
-Address = 10.0.0.1/24
+Address = 10.0.0.1/16
 ListenPort = 51820
 SaveConfig = true
 

@@ -1,9 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthModule } from './health/health.module';
 import { VpnModule } from './vpn/vpn.module';
 import { ClientsModule } from './clients/clients.module';
+import { AuthModule } from './auth/auth.module';
+import { AuthService } from './auth/auth.service';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { ClientsModule } from './clients/clients.module';
       }),
       inject: [ConfigService],
     }),
+    AuthModule,
     HealthModule,
     VpnModule,
     ClientsModule,
@@ -33,4 +36,10 @@ import { ClientsModule } from './clients/clients.module';
   controllers: [],
   providers: [],
 })
-export class AppModule {}
+export class AppModule implements OnModuleInit {
+  constructor(private authService: AuthService) {}
+
+  async onModuleInit() {
+    await this.authService.createDefaultAdmin();
+  }
+}

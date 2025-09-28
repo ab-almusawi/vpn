@@ -96,10 +96,6 @@ export class VpnService {
   }
 
   private async getNextAvailableIp(): Promise<string> {
-    const baseIp = '10.0.0';
-    const startRange = 2;
-    const endRange = 254;
-
     const existingIps = await this.clientRepository
       .createQueryBuilder('client')
       .select('client.vpnIp')
@@ -107,10 +103,13 @@ export class VpnService {
 
     const usedIps = new Set(existingIps.map(client => client.vpnIp));
 
-    for (let i = startRange; i <= endRange; i++) {
-      const ip = `${baseIp}.${i}`;
-      if (!usedIps.has(ip)) {
-        return ip;
+    // Use 10.0.0.0/16 subnet to support 65k+ clients
+    for (let subnet = 0; subnet <= 255; subnet++) {
+      for (let host = (subnet === 0 ? 2 : 1); host <= 254; host++) {
+        const ip = `10.0.${subnet}.${host}`;
+        if (!usedIps.has(ip)) {
+          return ip;
+        }
       }
     }
 
@@ -134,5 +133,9 @@ export class VpnService {
       await this.clientRepository.save(client);
       await this.wireguardService.removePeerFromServer(client);
     }
+  }
+
+  async getServerStats() {
+    return await this.wireguardService.getServerStats();
   }
 }
