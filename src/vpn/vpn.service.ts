@@ -48,7 +48,7 @@ export class VpnService {
   }
 
   private async createNewClient(createClientDto: CreateClientDto): Promise<Client> {
-    const { publicKey, privateKey, presharedKey } = this.wireguardService.generateKeyPair();
+    const { publicKey, privateKey, presharedKey } = await this.wireguardService.generateKeyPair();
     const vpnIp = await this.getNextAvailableIp();
     const location = await this.geolocationService.getLocationByIp(createClientDto.realIp);
 

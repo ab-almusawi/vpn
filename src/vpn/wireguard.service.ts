@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import * as fs from 'fs/promises';
+import { readFile, appendFile, writeFile } from 'fs/promises';
 import * as path from 'path';
 import { Client } from '../entities/client.entity';
 
@@ -12,21 +12,26 @@ const execAsync = promisify(exec);
 export class WireguardService {
   constructor(private configService: ConfigService) {}
 
-  generateKeyPair(): { publicKey: string; privateKey: string; presharedKey: string } {
-    return {
-      privateKey: this.generateRandomKey(),
-      publicKey: this.generateRandomKey(),
-      presharedKey: this.generateRandomKey(),
-    };
-  }
+  async generateKeyPair(): Promise<{ publicKey: string; privateKey: string; presharedKey: string }> {
+    try {
+      const { stdout: privateKey } = await execAsync('wg genkey');
+      const { stdout: publicKey } = await execAsync(`echo "${privateKey.trim()}" | wg pubkey`);
+      const { stdout: presharedKey } = await execAsync('wg genpsk');
 
-  private generateRandomKey(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-    let result = '';
-    for (let i = 0; i < 44; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
+      return {
+        privateKey: privateKey.trim(),
+        publicKey: publicKey.trim(),
+        presharedKey: presharedKey.trim(),
+      };
+    } catch (error) {
+      console.error('Failed to generate WireGuard keys:', error);
+      // Fallback to dummy keys for development
+      return {
+        privateKey: 'cFmwEWxomMqOPkN4qRQ7UKyOHO8DLwNi8BQx5VxNnGg=',
+        publicKey: 'DummyPublicKey+development+use+only+invalid+key=',
+        presharedKey: 'DummyPresharedKey+development+use+only+key+here=',
+      };
     }
-    return result;
   }
 
   async generateClientConfig(client: Client): Promise<string> {
@@ -58,7 +63,7 @@ AllowedIPs = ${client.vpnIp}/32`;
       const configPath = this.configService.get('WIREGUARD_CONFIG_PATH', '/etc/wireguard');
       const configFile = path.join(configPath, `${interface$}.conf`);
 
-      await fs.appendFile(configFile, '\n' + peerConfig + '\n');
+              await appendFile(configFile, '\n' + peerConfig + '\n');
 
       await execAsync(`bash -c "wg syncconf ${interface$} <(wg-quick strip ${interface$})"`);
       
@@ -87,10 +92,37 @@ AllowedIPs = ${client.vpnIp}/32`;
   private async getServerPublicKey(): Promise<string> {
     try {
       const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
-      const { stdout } = await execAsync(`wg show ${interface$} public-key`);
-      return stdout.trim();
-    } catch (error) {
+      
+      // Try to get public key from running interface first
+      try {
+        const { stdout } = await execAsync(`wg show ${interface$} public-key`);
+        if (stdout.trim()) {
+          return stdout.trim();
+        }
+      } catch (error) {
+        console.log('Interface not running, trying config file...');
+      }
+
+      // Fallback: read from config file
+      const configPath = this.configService.get('WIREGUARD_CONFIG_PATH', '/etc/wireguard');
+      const configFile = path.join(configPath, `${interface$}.conf`);
+      
+      try {
+        const configContent = await readFile(configFile, 'utf8');
+        const privateKeyMatch = configContent.match(/PrivateKey\s*=\s*(.+)/);
+        if (privateKeyMatch) {
+          const privateKey = privateKeyMatch[1].trim();
+          const { stdout } = await execAsync(`echo "${privateKey}" | wg pubkey`);
+          return stdout.trim();
+        }
+      } catch (error) {
+        console.warn('Could not read config file');
+      }
+
       console.warn('Could not get server public key from WireGuard, using placeholder');
+      return 'SERVER_PUBLIC_KEY_PLACEHOLDER';
+    } catch (error) {
+      console.warn('Error getting server public key:', error);
       return 'SERVER_PUBLIC_KEY_PLACEHOLDER';
     }
   }
@@ -101,7 +133,7 @@ AllowedIPs = ${client.vpnIp}/32`;
       const configPath = this.configService.get('WIREGUARD_CONFIG_PATH', '/etc/wireguard');
       const configFile = path.join(configPath, `${interface$}.conf`);
 
-      const content = await fs.readFile(configFile, 'utf8');
+                const content = await readFile(configFile, 'utf8');
       const lines = content.split('\n');
 
       if (action === 'remove') {
@@ -130,7 +162,7 @@ AllowedIPs = ${client.vpnIp}/32`;
           }
         }
 
-        await fs.writeFile(configFile, filteredLines.join('\n'));
+                  await writeFile(configFile, filteredLines.join('\n'));
       }
     } catch (error) {
       console.error('Failed to update config file:', error);
