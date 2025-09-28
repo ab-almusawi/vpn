@@ -1,8 +1,8 @@
-# Flutter VPN Client - Complete Integration Guide
+# Flutter VPN Client App - User Guide
 
 ## 🎯 Overview
 
-This guide provides complete instructions for building a secure Flutter VPN client that integrates with your NestJS VPN backend. The app implements **client-side key generation** for maximum security and supports all backend features including authentication, client management, and real-time statistics.
+This guide provides complete instructions for building a secure Flutter VPN client app for **end users**. The app focuses on connecting to your VPN server with maximum security using client-side key generation.
 
 ---
 
@@ -10,20 +10,20 @@ This guide provides complete instructions for building a secure Flutter VPN clie
 
 ```
 ┌─────────────────┐    HTTPS/REST API    ┌─────────────────┐
-│   Flutter App   │ ◄─────────────────► │  NestJS Backend │
-│                 │                      │                 │
+│  Flutter Client │ ◄─────────────────► │  NestJS Backend │
+│      App        │                      │                 │
 │ ┌─────────────┐ │                      │ ┌─────────────┐ │
 │ │ WireGuard   │ │    WireGuard VPN     │ │ WireGuard   │ │
 │ │ Client      │ │ ◄─────────────────► │ │ Server      │ │
 │ └─────────────┘ │                      │ └─────────────┘ │
 └─────────────────┘                      └─────────────────┘
 
-📱 Flutter Client                        🖥️  VPN Server
-- UI/UX Layer                           - REST API (Port 80)
-- HTTP Client                           - WireGuard (Port 51820)  
-- WireGuard Integration                 - PostgreSQL Database
-- Secure Key Storage                    - Admin Dashboard
-- Client-side Key Generation            - Client Management
+📱 Client Features                       🖥️  VPN Server
+- VPN Connection Management             - Client Registration API
+- Client-side Key Generation            - WireGuard Server (Port 51820)  
+- Secure Key Storage                    - PostgreSQL Database
+- Connection Status UI                  - IP Geolocation
+- Device Registration                   - Real-time Connection Tracking
 ```
 
 ---
@@ -33,44 +33,9 @@ This guide provides complete instructions for building a secure Flutter VPN clie
 ### **Base URL**: `http://81.30.161.139`
 ### **API Prefix**: `/api`
 
-### 🔐 **Authentication Endpoints**
+### 🌐 **VPN Client Endpoints (Public)**
 
-#### **1. Admin Login**
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "username": "hameed",
-  "password": "19951995Bh"
-}
-```
-
-**Response:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {
-    "id": "uuid",
-    "username": "hameed", 
-    "email": "hameed@vpn.local",
-    "role": "admin",
-    "lastLogin": "2025-09-28T14:00:00.000Z"
-  }
-}
-```
-
-#### **2. Get Admin Profile**
-```http
-GET /api/auth/profile
-Authorization: Bearer {access_token}
-```
-
----
-
-### 🌐 **VPN Client Endpoints**
-
-#### **3. Register Client (RECOMMENDED - Secure)**
+#### **1. Register Client (RECOMMENDED - Secure)**
 ```http
 POST /api/vpn/register
 Content-Type: application/json
@@ -103,31 +68,12 @@ Content-Type: application/json
 }
 ```
 
-#### **4. Get Config (Legacy - Less Secure)**
+#### **2. Get Config (Legacy - Less Secure)**
 ```http
 GET /api/vpn/get-config?deviceId=flutter_phone_12345&deviceName=John's%20iPhone
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "config": "[Interface]\nPrivateKey = server_generated_key...\nAddress = 172.16.0.100/16...",
-  "clientInfo": {
-    "deviceId": "flutter_phone_12345",
-    "vpnIp": "172.16.0.100",
-    "country": "Iraq",
-    "city": "Amarah"
-  },
-  "warning": "Server-side key generation is less secure. Consider using POST /register endpoint."
-}
-```
-
----
-
-### 🏥 **System Health**
-
-#### **5. Health Check**
+#### **3. Health Check**
 ```http
 GET /api/health
 ```
@@ -139,46 +85,12 @@ GET /api/health
   "timestamp": "2025-09-28T14:00:00.000Z",
   "uptime": 3600,
   "version": "1.0.0",
-  "environment": "development",
-  "database": {
-    "status": "connected",
-    "responseTime": 12
-  },
   "wireguard": {
     "status": "active",
     "interface": "wg0",
     "clients": 25
   }
 }
-```
-
----
-
-### 🔧 **Admin Management Endpoints**
-*(All require Authorization: Bearer {access_token})*
-
-#### **6. Get All Clients**
-```http
-GET /api/clients
-Authorization: Bearer {access_token}
-```
-
-#### **7. Get Client Statistics**
-```http
-GET /api/clients/stats/overview
-Authorization: Bearer {access_token}
-```
-
-#### **8. Search Clients**
-```http
-GET /api/clients/search?q=iPhone&filter=active
-Authorization: Bearer {access_token}
-```
-
-#### **9. WireGuard Server Stats**
-```http
-GET /api/vpn/server-stats  
-Authorization: Bearer {access_token}
 ```
 
 ---
@@ -232,37 +144,26 @@ lib/
 ├── main.dart
 ├── core/
 │   ├── constants/
-│   │   ├── api_constants.dart
-│   │   └── app_constants.dart
+│   │   └── api_constants.dart
 │   ├── network/
-│   │   ├── api_client.dart
-│   │   ├── dio_interceptor.dart
-│   │   └── network_exceptions.dart
+│   │   └── api_client.dart
 │   ├── storage/
-│   │   ├── secure_storage.dart
-│   │   └── preferences.dart
+│   │   └── secure_storage.dart
 │   └── utils/
-│       ├── device_utils.dart
 │       └── wireguard_utils.dart
 ├── features/
-│   ├── auth/
-│   │   ├── data/
-│   │   ├── domain/
-│   │   └── presentation/
-│   ├── vpn/
-│   │   ├── data/
-│   │   ├── domain/
-│   │   └── presentation/
-│   └── admin/
+│   └── vpn/
 │       ├── data/
+│       │   └── vpn_service.dart
 │       ├── domain/
+│       │   └── models/
 │       └── presentation/
-├── shared/
-│   ├── models/
-│   ├── widgets/
-│   └── providers/
-└── routes/
-    └── app_router.dart
+│           ├── providers/
+│           ├── screens/
+│           └── widgets/
+└── shared/
+    ├── models/
+    └── widgets/
 ```
 
 ### **3. Core Configuration**
@@ -274,16 +175,12 @@ class ApiConstants {
   static const String baseUrl = 'http://81.30.161.139';
   static const String apiPrefix = '/api';
   
-  // Endpoints
-  static const String login = '$apiPrefix/auth/login';
-  static const String profile = '$apiPrefix/auth/profile';
+  // Client Endpoints
   static const String registerVpn = '$apiPrefix/vpn/register';
   static const String getConfig = '$apiPrefix/vpn/get-config';
   static const String health = '$apiPrefix/health';
-  static const String clients = '$apiPrefix/clients';
-  static const String serverStats = '$apiPrefix/vpn/server-stats';
   
-  // WireGuard
+  // WireGuard Config
   static const String serverEndpoint = '81.30.161.139:51820';
   static const String dns = '8.8.8.8, 8.8.4.4';
 }
@@ -307,7 +204,6 @@ class SecureStorageService {
   // Keys
   static const String _privateKeyKey = 'wireguard_private_key';
   static const String _publicKeyKey = 'wireguard_public_key';
-  static const String _authTokenKey = 'auth_token';
   static const String _deviceIdKey = 'device_id';
   static const String _vpnConfigKey = 'vpn_config';
 
@@ -326,15 +222,6 @@ class SecureStorageService {
 
   static Future<String?> getPublicKey() async {
     return await _storage.read(key: _publicKeyKey);
-  }
-
-  // Auth Token
-  static Future<void> storeAuthToken(String token) async {
-    await _storage.write(key: _authTokenKey, value: token);
-  }
-
-  static Future<String?> getAuthToken() async {
-    return await _storage.read(key: _authTokenKey);
   }
 
   // Device ID
@@ -369,6 +256,9 @@ class SecureStorageService {
 import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'dart:io';
 
 class WireGuardUtils {
   
@@ -449,53 +339,6 @@ PersistentKeepalive = 25''';
 import 'package:json_annotation/json_annotation.dart';
 
 part 'vpn_models.g.dart';
-
-@JsonSerializable()
-class LoginRequest {
-  final String username;
-  final String password;
-
-  LoginRequest({required this.username, required this.password});
-
-  factory LoginRequest.fromJson(Map<String, dynamic> json) =>
-      _$LoginRequestFromJson(json);
-  Map<String, dynamic> toJson() => _$LoginRequestToJson(this);
-}
-
-@JsonSerializable()
-class LoginResponse {
-  @JsonKey(name: 'access_token')
-  final String accessToken;
-  final AdminUser user;
-
-  LoginResponse({required this.accessToken, required this.user});
-
-  factory LoginResponse.fromJson(Map<String, dynamic> json) =>
-      _$LoginResponseFromJson(json);
-  Map<String, dynamic> toJson() => _$LoginResponseToJson(this);
-}
-
-@JsonSerializable()
-class AdminUser {
-  final String id;
-  final String username;
-  final String email;
-  final String role;
-  @JsonKey(name: 'lastLogin')
-  final String? lastLogin;
-
-  AdminUser({
-    required this.id,
-    required this.username,
-    required this.email,
-    required this.role,
-    this.lastLogin,
-  });
-
-  factory AdminUser.fromJson(Map<String, dynamic> json) =>
-      _$AdminUserFromJson(json);
-  Map<String, dynamic> toJson() => _$AdminUserToJson(this);
-}
 
 @JsonSerializable()
 class VpnRegistrationRequest {
@@ -581,8 +424,6 @@ class HealthResponse {
   final String timestamp;
   final int uptime;
   final String version;
-  final String environment;
-  final DatabaseStatus database;
   final WireGuardStatus wireguard;
 
   HealthResponse({
@@ -590,26 +431,12 @@ class HealthResponse {
     required this.timestamp,
     required this.uptime,
     required this.version,
-    required this.environment,
-    required this.database,
     required this.wireguard,
   });
 
   factory HealthResponse.fromJson(Map<String, dynamic> json) =>
       _$HealthResponseFromJson(json);
   Map<String, dynamic> toJson() => _$HealthResponseToJson(this);
-}
-
-@JsonSerializable()
-class DatabaseStatus {
-  final String status;
-  final int? responseTime;
-
-  DatabaseStatus({required this.status, this.responseTime});
-
-  factory DatabaseStatus.fromJson(Map<String, dynamic> json) =>
-      _$DatabaseStatusFromJson(json);
-  Map<String, dynamic> toJson() => _$DatabaseStatusToJson(this);
 }
 
 @JsonSerializable()
@@ -637,7 +464,6 @@ class WireGuardStatus {
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../constants/api_constants.dart';
-import '../storage/secure_storage.dart';
 import '../../shared/models/vpn_models.dart';
 
 class ApiClient {
@@ -650,25 +476,10 @@ class ApiClient {
       receiveTimeout: const Duration(seconds: 30),
     ));
 
-    _dio.interceptors.add(AuthInterceptor());
     _dio.interceptors.add(LogInterceptor(requestBody: true, responseBody: true));
   }
 
-  // Auth
-  Future<LoginResponse> login(LoginRequest request) async {
-    final response = await _dio.post(
-      ApiConstants.login,
-      data: request.toJson(),
-    );
-    return LoginResponse.fromJson(response.data);
-  }
-
-  Future<AdminUser> getProfile() async {
-    final response = await _dio.get(ApiConstants.profile);
-    return AdminUser.fromJson(response.data);
-  }
-
-  // VPN
+  // VPN Registration
   Future<VpnRegistrationResponse> registerVpnClient(
     VpnRegistrationRequest request,
   ) async {
@@ -693,46 +504,10 @@ class ApiClient {
     return response.data;
   }
 
-  // System
+  // System Health
   Future<HealthResponse> getHealth() async {
     final response = await _dio.get(ApiConstants.health);
     return HealthResponse.fromJson(response.data);
-  }
-
-  // Admin
-  Future<List<dynamic>> getClients() async {
-    final response = await _dio.get(ApiConstants.clients);
-    return response.data;
-  }
-
-  Future<Map<String, dynamic>> getClientsStats() async {
-    final response = await _dio.get('${ApiConstants.clients}/stats/overview');
-    return response.data;
-  }
-
-  Future<Map<String, dynamic>> getServerStats() async {
-    final response = await _dio.get(ApiConstants.serverStats);
-    return response.data;
-  }
-}
-
-class AuthInterceptor extends Interceptor {
-  @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
-    final token = await SecureStorageService.getAuthToken();
-    if (token != null) {
-      options.headers['Authorization'] = 'Bearer $token';
-    }
-    handler.next(options);
-  }
-
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) {
-    if (err.response?.statusCode == 401) {
-      // Token expired, clear storage
-      SecureStorageService.clearAll();
-    }
-    handler.next(err);
   }
 }
 
@@ -816,6 +591,11 @@ class VpnService {
   /// Reset VPN configuration
   Future<void> resetVpnConfiguration() async {
     await SecureStorageService.clearAll();
+  }
+
+  /// Check server health
+  Future<HealthResponse> checkHealth() async {
+    return await _apiClient.getHealth();
   }
 }
 
@@ -998,6 +778,9 @@ final vpnProvider = StateNotifierProvider<VpnNotifier, VpnState>((ref) {
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/vpn_provider.dart';
+import '../widgets/vpn_status_circle.dart';
+import '../widgets/vpn_info_card.dart';
+import '../widgets/vpn_action_button.dart';
 
 class VpnScreen extends ConsumerStatefulWidget {
   const VpnScreen({super.key});
@@ -1028,8 +811,25 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const VpnSetupDialog(),
+      builder: (context) => AlertDialog(
+        title: const Text('Setup VPN'),
+        content: const Text('Would you like to set up your VPN connection?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _initializeVpn();
+            },
+            child: const Text('Setup'),
+          ),
+        ],
+      ),
     );
+  }
+
+  void _initializeVpn() {
+    final vpnNotifier = ref.read(vpnProvider.notifier);
+    vpnNotifier.initializeVpn();
   }
 
   @override
@@ -1129,7 +929,7 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
       case VpnConnectionStatus.connecting:
         return 'Connecting...';
       case VpnConnectionStatus.connected:
-        return 'Connected';
+        return 'Connected & Secured';
       case VpnConnectionStatus.disconnecting:
         return 'Disconnecting...';
       case VpnConnectionStatus.error:
@@ -1152,7 +952,60 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
   void _showSettingsMenu() {
     showModalBottomSheet(
       context: context,
-      builder: (context) => const VpnSettingsSheet(),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.refresh),
+              title: const Text('Reset Configuration'),
+              onTap: () {
+                Navigator.pop(context);
+                _showResetConfirmation();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.health_and_safety),
+              title: const Text('Server Health'),
+              onTap: () {
+                Navigator.pop(context);
+                _checkServerHealth();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showResetConfirmation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset Configuration'),
+        content: const Text('This will remove all VPN settings. Are you sure?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              ref.read(vpnProvider.notifier).resetConfiguration();
+            },
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _checkServerHealth() {
+    // TODO: Implement server health check
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Checking server health...')),
     );
   }
 }
@@ -1160,7 +1013,7 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
 
 ---
 
-## 📋 Complete Implementation Checklist
+## 📋 Implementation Checklist
 
 ### **Phase 1: Core Setup** ✅
 - [ ] Create Flutter project
@@ -1182,7 +1035,7 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
 - [ ] Create connection status UI
 - [ ] Build setup/configuration flow
 - [ ] Add settings screen
-- [ ] Implement admin features (optional)
+- [ ] Polish user experience
 
 ### **Phase 4: Platform Integration** 🔧
 - [ ] Android VPN service implementation
@@ -1200,38 +1053,32 @@ class _VpnScreenState extends ConsumerState<VpnScreen> {
 
 ---
 
-## 🔐 Security Best Practices
+## 🔐 Security Features
 
 1. **✅ Client-Side Key Generation**: Private keys never leave device
 2. **✅ Secure Storage**: Use platform keychain/keystore
-3. **✅ Certificate Pinning**: Pin server certificates
-4. **✅ Root Detection**: Detect rooted/jailbroken devices
-5. **✅ Obfuscation**: Protect API endpoints and keys
-6. **✅ Network Security**: Use HTTPS for all API calls
-7. **✅ Session Management**: Handle token expiration gracefully
+3. **✅ Network Security**: HTTPS for all API calls
+4. **✅ Device-Specific Registration**: Unique device identification
+5. **✅ Configuration Protection**: Encrypted local storage
 
 ---
 
-## 🎯 Next Steps
+## 🚀 Next Steps
 
-1. **Start with Phase 1** - Setup basic project structure
-2. **Test API Integration** - Verify all endpoints work
-3. **Implement Key Generation** - Test WireGuard key creation
-4. **Build MVP** - Core connect/disconnect functionality
-5. **Add Platform Features** - Native VPN integration
-6. **Polish UI** - Beautiful, intuitive interface
-7. **Deploy & Test** - Real-world testing
+1. **Setup Project**: Create Flutter project with dependencies
+2. **Implement Core**: Build secure storage and key generation
+3. **API Integration**: Connect to your VPN backend
+4. **Build UI**: Create beautiful connection interface
+5. **Test & Deploy**: Real device testing and app store submission
 
 ---
 
-## 📞 Support & Integration
+## 📞 Integration Support
 
-For any questions about backend API integration or Flutter implementation:
+**Backend Endpoints Ready:**
+- ✅ `POST /api/vpn/register` - Secure client registration
+- ✅ `GET /api/vpn/get-config` - Legacy config retrieval  
+- ✅ `GET /api/health` - Server health status
 
-- **Backend Endpoints**: All documented above with examples
-- **Authentication**: JWT-based with secure token storage
-- **VPN Registration**: Client-side key generation recommended
-- **Error Handling**: Comprehensive error responses provided
-- **Real-time Updates**: WebSocket support available for admin features
+**Your Flutter VPN client will provide users with a secure, easy-to-use VPN experience! 🔒**
 
-**Your Flutter VPN client will be production-ready with maximum security! 🚀**

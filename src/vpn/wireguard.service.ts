@@ -27,8 +27,8 @@ export class WireguardService {
       console.error('Failed to generate WireGuard keys:', error);
       // Fallback to dummy keys for development
       return {
-        privateKey: 'cFmwEWxomMqOPkN4qRQ7UKyOHO8DLwNi8BQx5VxNnGg=',
-        publicKey: 'DummyPublicKey+development+use+only+invalid+key=',
+        privateKey: '4JQOxUdA5nGoLcRHB6Qe1N6DBwrZX8shkuuir7KS1VA=',
+        publicKey: 'CgZ3xhsR5w76yxQO4lHZGTaKh+R+wqgQA9HCPM8JQD4=',
         presharedKey: 'DummyPresharedKey+development+use+only+key+here=',
       };
     }
@@ -215,6 +215,47 @@ AllowedIPs = ${client.vpnIp}/32`;
         peers: [],
         totalPeers: 0,
         error: error.message,
+      };
+    }
+  }
+
+  async verifyServerConfiguration(): Promise<{ isValid: boolean; currentPublicKey: string; expectedPublicKey?: string; errors?: string[] }> {
+    const errors: string[] = [];
+    const expectedPublicKey = 'CgZ3xhsR5w76yxQO4lHZGTaKh+R+wqgQA9HCPM8JQD4=';
+    
+    try {
+      const currentPublicKey = await this.getServerPublicKey();
+      
+      if (currentPublicKey === 'SERVER_PUBLIC_KEY_PLACEHOLDER') {
+        errors.push('Server public key could not be retrieved from WireGuard interface or config file');
+      }
+      
+      if (currentPublicKey !== expectedPublicKey && currentPublicKey !== 'SERVER_PUBLIC_KEY_PLACEHOLDER') {
+        console.log(`Current public key: ${currentPublicKey}`);
+        console.log(`Expected public key: ${expectedPublicKey}`);
+        console.log('Keys do not match - configuration may need updating');
+      }
+      
+      const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
+      try {
+        await execAsync(`wg show ${interface$}`);
+      } catch (error) {
+        errors.push(`WireGuard interface ${interface$} is not active`);
+      }
+      
+      return {
+        isValid: errors.length === 0 && currentPublicKey === expectedPublicKey,
+        currentPublicKey,
+        expectedPublicKey,
+        errors: errors.length > 0 ? errors : undefined,
+      };
+    } catch (error) {
+      errors.push(`Failed to verify configuration: ${error.message}`);
+      return {
+        isValid: false,
+        currentPublicKey: 'UNKNOWN',
+        expectedPublicKey,
+        errors,
       };
     }
   }

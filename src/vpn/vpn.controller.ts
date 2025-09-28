@@ -2,13 +2,17 @@ import { Controller, Get, Post, Body, Query, Req, UseGuards, BadRequestException
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
 import { VpnService } from './vpn.service';
+import { WireguardService } from './wireguard.service';
 import { CreateClientDto } from '../shared/dto/create-client.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('vpn')
 @Controller('vpn')
 export class VpnController {
-  constructor(private readonly vpnService: VpnService) {}
+  constructor(
+    private readonly vpnService: VpnService,
+    private readonly wireguardService: WireguardService,
+  ) {}
 
     @Post('register')
   @ApiOperation({
@@ -27,7 +31,7 @@ export class VpnController {
         city: 'Amarah'
       },
       serverConfig: {
-        serverPublicKey: 'M7XYM12pDk7nbBT7REM9xlgT6m8lpv/ttwIYUDccNF8=',
+        serverPublicKey: 'CgZ3xhsR5w76yxQO4lHZGTaKh+R+wqgQA9HCPM8JQD4=',
         serverEndpoint: '81.30.161.139:51820',
         assignedIp: '172.16.0.100',
         dns: '8.8.8.8, 8.8.4.4'
@@ -137,5 +141,26 @@ export class VpnController {
   })
   async getServerStats() {
     return await this.vpnService.getServerStats();
+  }
+
+  @Get('verify-server')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Verify server WireGuard configuration',
+    description: 'Check if the server WireGuard keys match the expected configuration and the interface is active'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Server configuration verification results',
+    example: {
+      isValid: true,
+      currentPublicKey: 'CgZ3xhsR5w76yxQO4lHZGTaKh+R+wqgQA9HCPM8JQD4=',
+      expectedPublicKey: 'CgZ3xhsR5w76yxQO4lHZGTaKh+R+wqgQA9HCPM8JQD4=',
+      errors: null
+    }
+  })
+  async verifyServerConfiguration() {
+    return await this.wireguardService.verifyServerConfiguration();
   }
 }
