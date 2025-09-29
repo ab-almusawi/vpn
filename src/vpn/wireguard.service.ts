@@ -65,6 +65,8 @@ PersistentKeepalive = 25`;
         throw new Error('Client public key is missing or empty');
       }
 
+      console.log(`Adding peer for client ${client.deviceId} with public key ${client.publicKey.trim()}`);
+
       const peerConfig = `
 [Peer]
 PublicKey = ${client.publicKey.trim()}
@@ -86,13 +88,64 @@ AllowedIPs = ${client.vpnIp}/32`;
 
       await appendFile(configFile, peerConfig);
 
-      // Sync the configuration
-      await execAsync(`bash -c "wg syncconf ${interface$} <(wg-quick strip ${interface$})"`);
+      // Validate and sync the configuration
+      await this.validateAndSyncConfig();
       
-      console.log(`Added peer for client ${client.deviceId} with IP ${client.vpnIp}`);
+      console.log(`Successfully added peer for client ${client.deviceId} with IP ${client.vpnIp}`);
     } catch (error) {
       console.error(`Failed to add peer for client ${client.deviceId}:`, error);
       throw error;
+    }
+  }
+
+  private async validateAndSyncConfig(): Promise<void> {
+    try {
+      const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
+      const configPath = this.configService.get('WIREGUARD_CONFIG_PATH', '/etc/wireguard');
+      const configFile = path.join(configPath, `${interface$}.conf`);
+
+      // Validate the configuration file format
+      const configContent = await readFile(configFile, 'utf8');
+      const lines = configContent.split('\n');
+      let inPeerSection = false;
+      let currentPeerHasPublicKey = false;
+
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        
+        if (trimmedLine.startsWith('[Peer]')) {
+          // Check if previous peer section had a public key
+          if (inPeerSection && !currentPeerHasPublicKey) {
+            throw new Error('Found peer section without PublicKey');
+          }
+          inPeerSection = true;
+          currentPeerHasPublicKey = false;
+        } else if (trimmedLine.startsWith('[') && !trimmedLine.startsWith('[Peer]')) {
+          // Entering non-peer section
+          if (inPeerSection && !currentPeerHasPublicKey) {
+            throw new Error('Found peer section without PublicKey');
+          }
+          inPeerSection = false;
+        } else if (inPeerSection && trimmedLine.startsWith('PublicKey =')) {
+          const publicKey = trimmedLine.split('=')[1]?.trim();
+          if (publicKey && publicKey.length > 0) {
+            currentPeerHasPublicKey = true;
+          }
+        }
+      }
+
+      // Check last peer section
+      if (inPeerSection && !currentPeerHasPublicKey) {
+        throw new Error('Found peer section without PublicKey');
+      }
+
+      // Sync the configuration if validation passes
+      await execAsync(`bash -c "wg syncconf ${interface$} <(wg-quick strip ${interface$})"`);
+      console.log(`Configuration validated and synced successfully for ${interface$}`);
+      
+    } catch (error) {
+      console.error('Configuration validation or sync failed:', error);
+      throw new Error(`WireGuard configuration error: ${error.message}`);
     }
   }
 
@@ -105,9 +158,12 @@ AllowedIPs = ${client.vpnIp}/32`;
         return;
       }
 
+      console.log(`Removing peer for client ${client.deviceId} with public key ${client.publicKey.trim()}`);
+
       // Remove from running configuration first
       try {
         await execAsync(`wg set ${interface$} peer ${client.publicKey.trim()} remove`);
+        console.log(`Removed peer from running config: ${client.publicKey.trim()}`);
       } catch (error) {
         console.warn(`Peer ${client.publicKey.trim()} not found in running config:`, error.message);
       }
@@ -115,7 +171,10 @@ AllowedIPs = ${client.vpnIp}/32`;
       // Remove from config file
       await this.updateConfigFile(client, 'remove');
       
-      console.log(`Removed peer for client ${client.deviceId}`);
+      // Validate and sync configuration
+      await this.validateAndSyncConfig();
+      
+      console.log(`Successfully removed peer for client ${client.deviceId}`);
     } catch (error) {
       console.error(`Failed to remove peer for client ${client.deviceId}:`, error);
       throw error;

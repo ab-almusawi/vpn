@@ -100,8 +100,11 @@ export class VpnService {
   }
 
   private async createNewClient(createClientDto: CreateClientDto): Promise<Client> {
+    console.log(`Creating new VPN client for device ${createClientDto.deviceId}`);
+    
     // Always generate keys server-side
     const keyPair = await this.wireguardService.generateKeyPair();
+    console.log(`Generated keys for new client ${createClientDto.deviceId}`);
     
     const vpnIp = await this.getNextAvailableIp();
     const location = await this.geolocationService.getLocationByIp(createClientDto.realIp);
@@ -120,22 +123,44 @@ export class VpnService {
     });
 
     const savedClient = await this.clientRepository.save(client);
+    console.log(`Saved new client ${createClientDto.deviceId} to database with VPN IP ${vpnIp}`);
 
-    await this.wireguardService.addPeerToServer(savedClient);
+    try {
+      await this.wireguardService.addPeerToServer(savedClient);
+      console.log(`Successfully added new client ${createClientDto.deviceId} to VPN server`);
+    } catch (error) {
+      console.error(`Failed to add new client ${createClientDto.deviceId} to VPN server: ${error.message}`);
+      // Clean up the database record if we can't add to VPN server
+      await this.clientRepository.remove(savedClient);
+      throw new BadRequestException(`Failed to register client with VPN server: ${error.message}`);
+    }
 
     return savedClient;
   }
 
   private async regenerateClientKeys(client: Client): Promise<Client> {
-    // Remove old peer from server
+    console.log(`Regenerating keys for client ${client.deviceId}`);
+    
+    // Store old public key for cleanup
+    const oldPublicKey = client.publicKey;
+    
+    // Remove old peer from server first
     try {
-      await this.wireguardService.removePeerFromServer(client);
+      if (oldPublicKey && oldPublicKey.trim() !== '') {
+        await this.wireguardService.removePeerFromServer(client);
+        console.log(`Successfully removed old peer for ${client.deviceId}`);
+        
+        // Small delay to ensure file operations complete
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     } catch (error) {
-      console.warn(`Failed to remove old peer: ${error.message}`);
+      console.error(`Failed to remove old peer for ${client.deviceId}: ${error.message}`);
+      // Continue with key generation even if removal fails
     }
 
     // Generate new keys
     const keyPair = await this.wireguardService.generateKeyPair();
+    console.log(`Generated new keys for client ${client.deviceId}`);
     
     // Update client with new keys
     client.publicKey = keyPair.publicKey;
@@ -144,9 +169,16 @@ export class VpnService {
     client.updatedAt = new Date();
 
     const savedClient = await this.clientRepository.save(client);
+    console.log(`Updated client ${client.deviceId} with new keys in database`);
 
     // Add new peer to server
-    await this.wireguardService.addPeerToServer(savedClient);
+    try {
+      await this.wireguardService.addPeerToServer(savedClient);
+      console.log(`Successfully added new peer for ${client.deviceId}`);
+    } catch (error) {
+      console.error(`Failed to add new peer for ${client.deviceId}: ${error.message}`);
+      throw new BadRequestException(`Failed to register client with VPN server: ${error.message}`);
+    }
 
     return savedClient;
   }
