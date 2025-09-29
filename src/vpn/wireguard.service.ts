@@ -229,43 +229,43 @@ AllowedIPs = ${client.vpnIp}/32`;
       const lines = content.split('\n');
 
       if (action === 'remove') {
-        let inPeerSection = false;
-        let peerToRemove = false;
-        let skipEmptyLines = false;
         const filteredLines = [];
-
-        for (let i = 0; i < lines.length; i++) {
+        let i = 0;
+        
+        while (i < lines.length) {
           const line = lines[i];
           
-          if (line.startsWith('[Peer]')) {
-            inPeerSection = true;
-            peerToRemove = false;
-            skipEmptyLines = false;
-          } else if (line.startsWith('[') && !line.startsWith('[Peer]')) {
-            inPeerSection = false;
-            peerToRemove = false;
-            skipEmptyLines = false;
+          // Check if this is a peer section that contains our public key
+          if (line.trim().startsWith('[Peer]')) {
+            let peerSectionLines = [line];
+            let j = i + 1;
+            let foundTargetPublicKey = false;
+            
+            // Collect all lines in this peer section
+            while (j < lines.length && !lines[j].trim().startsWith('[')) {
+              peerSectionLines.push(lines[j]);
+              
+              // Check if this peer section contains our target public key
+              if (lines[j].includes(`PublicKey = ${client.publicKey.trim()}`)) {
+                foundTargetPublicKey = true;
+              }
+              j++;
+            }
+            
+            // Only add this peer section if it's NOT the one we want to remove
+            if (!foundTargetPublicKey) {
+              filteredLines.push(...peerSectionLines);
+            } else {
+              console.log(`Removing peer section with public key: ${client.publicKey.trim()}`);
+            }
+            
+            // Move to the next section
+            i = j;
+          } else {
+            // This is not a peer section, keep the line
+            filteredLines.push(line);
+            i++;
           }
-
-          if (inPeerSection && line.includes(`PublicKey = ${client.publicKey.trim()}`)) {
-            peerToRemove = true;
-            skipEmptyLines = true;
-          }
-
-          // Skip the entire peer section if it's marked for removal
-          if (peerToRemove && inPeerSection) {
-            // Skip this line and continue to next section
-            continue;
-          }
-
-          // Skip trailing empty lines after removed peer
-          if (skipEmptyLines && line.trim() === '') {
-            continue;
-          } else if (line.trim() !== '') {
-            skipEmptyLines = false;
-          }
-
-          filteredLines.push(line);
         }
 
         // Clean up trailing empty lines
@@ -273,7 +273,9 @@ AllowedIPs = ${client.vpnIp}/32`;
           filteredLines.pop();
         }
 
-        await writeFile(configFile, filteredLines.join('\n') + '\n');
+        // Ensure file ends with newline
+        const finalContent = filteredLines.join('\n') + (filteredLines.length > 0 ? '\n' : '');
+        await writeFile(configFile, finalContent);
         console.log(`Updated config file: removed peer with public key ${client.publicKey.trim()}`);
       }
     } catch (error) {
