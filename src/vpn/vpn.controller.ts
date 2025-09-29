@@ -4,6 +4,7 @@ import { Request } from 'express';
 import { VpnService } from './vpn.service';
 import { WireguardService } from './wireguard.service';
 import { CreateClientDto } from '../shared/dto/create-client.dto';
+import { RegisterVpnClientDto } from '../shared/dto/register-vpn-client.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('vpn')
@@ -17,17 +18,17 @@ export class VpnController {
     @Post('register')
   @ApiOperation({
     summary: 'Register VPN client with server-generated keys',
-    description: 'Server generates WireGuard keys for the client and returns complete VPN configuration'
+    description: 'Client sends minimal device info. Server automatically generates all WireGuard keys and extracts real IP from request headers.'
   })
   @ApiResponse({
     status: 201,
-    description: 'Client registered successfully with generated keys',
+    description: 'Client registered successfully with server-generated keys',
     example: {
       success: true,
       isNewClient: true,
       clientInfo: {
-        deviceId: 'android_honorrmo-n21_goovi.almusawi.vpn',
-        deviceName: 'HONOR RMO-NX1',
+        deviceId: 'unique-device-identifier',
+        deviceName: 'Samsung Galaxy S21',
         vpnIp: '172.16.0.2',
         country: 'Iraq',
         city: 'Amarah'
@@ -48,11 +49,17 @@ export class VpnController {
     }
   })
   async registerClient(
-    @Body() createClientDto: CreateClientDto,
+    @Body() registerDto: RegisterVpnClientDto,
     @Req() request?: Request,
   ) {
     const realIp = this.extractClientIp(request);
-    createClientDto.realIp = realIp;
+    
+    // Convert to CreateClientDto format for service layer
+    const createClientDto: CreateClientDto = {
+      deviceId: registerDto.deviceId,
+      deviceName: registerDto.deviceName,
+      realIp: registerDto.realIp || realIp, // Use client-provided IP or extract from headers
+    };
 
     return await this.vpnService.registerClient(createClientDto);
   }

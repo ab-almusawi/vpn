@@ -1,0 +1,26 @@
+vpn-status
+
+sudo nano /etc/wireguard/wg0.conf
+
+sudo wg-quick up wg0
+
+# Start service
+sudo systemctl start vpn-api
+
+# Stop service
+sudo systemctl stop vpn-api
+
+# Restart service
+sudo systemctl restart vpn-api
+
+# Check status
+sudo systemctl status vpn-api
+
+# View logs
+sudo journalctl -u vpn-api -f
+
+# Enable auto-start at boot
+sudo systemctl enable vpn-api
+
+# Disable auto-start
+sudo systemctl disable vpn-api
