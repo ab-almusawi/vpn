@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Client } from '../entities/client.entity';
 import { WireguardService } from '../vpn/wireguard.service';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class ClientsService {
@@ -238,12 +239,159 @@ export class ClientsService {
   }
 
   async bulkDeactivateClients(clientIds: string[]): Promise<void> {
+    console.log(`Bulk deactivating ${clientIds.length} clients...`);
+    
+    // First, get the clients to be deactivated (need their public keys for WireGuard removal)
+    const clientsToDeactivate = await this.clientRepository.find({
+      where: { id: In(clientIds) },
+      select: ['id', 'deviceId', 'publicKey']
+    });
+
+    console.log(`Found ${clientsToDeactivate.length} clients to deactivate`);
+
+    // Update database first
     await this.clientRepository
       .createQueryBuilder()
       .update(Client)
       .set({ isActive: false })
       .where('id IN (:...clientIds)', { clientIds })
       .execute();
+
+    console.log('Database updated, now removing peers from WireGuard server...');
+
+    // Remove each client from WireGuard server
+    const removalPromises = clientsToDeactivate.map(async (client) => {
+      try {
+        await this.wireguardService.removePeerFromServer(client);
+        console.log(`✅ Removed client ${client.deviceId} from WireGuard server`);
+      } catch (error) {
+        console.error(`❌ Failed to remove client ${client.deviceId} from WireGuard server: ${error.message}`);
+        // Don't throw here, continue with other clients
+      }
+    });
+
+    // Wait for all removals to complete
+    await Promise.allSettled(removalPromises);
+    console.log(`Bulk deactivation completed for ${clientIds.length} clients`);
+  }
+
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async syncStatsAutomatically() {
+    console.log('Running automatic client stats synchronization...');
+    await this.updateClientStats();
+  }
+
+  async getDiagnostics() {
+    try {
+      console.log('Getting client-server diagnostics...');
+      
+      // Get server stats
+      const serverStats = await this.wireguardService.getServerStats();
+      
+      // Get all database clients
+      const dbClients = await this.clientRepository.find({
+        order: { createdAt: 'DESC' }
+      });
+
+      // Find matches and mismatches
+      const matchedClients = [];
+      const unmatchedDbClients = [];
+      const unmatchedServerPeers = [...serverStats.peers];
+
+      for (const client of dbClients) {
+        const peerIndex = unmatchedServerPeers.findIndex(peer => peer.publicKey === client.publicKey);
+        if (peerIndex >= 0) {
+          const peer = unmatchedServerPeers[peerIndex];
+          matchedClients.push({
+            client: {
+              id: client.id,
+              deviceId: client.deviceId,
+              deviceName: client.deviceName,
+              vpnIp: client.vpnIp,
+              publicKey: client.publicKey,
+              isActive: client.isActive,
+              lastHandshake: client.lastHandshake,
+              bytesReceived: client.bytesReceived,
+              bytesSent: client.bytesSent
+            },
+            serverPeer: peer,
+            status: 'MATCHED'
+          });
+          unmatchedServerPeers.splice(peerIndex, 1);
+        } else {
+          unmatchedDbClients.push({
+            id: client.id,
+            deviceId: client.deviceId,
+            deviceName: client.deviceName,
+            vpnIp: client.vpnIp,
+            publicKey: client.publicKey,
+            isActive: client.isActive,
+            status: 'DB_ONLY'
+          });
+        }
+      }
+
+      const serverOnlyPeers = unmatchedServerPeers.map(peer => ({
+        ...peer,
+        status: 'SERVER_ONLY'
+      }));
+
+      const diagnostics = {
+        timestamp: new Date().toISOString(),
+        serverStats: {
+          interface: serverStats.interface,
+          totalPeers: serverStats.totalPeers,
+          error: (serverStats as any).error || null
+        },
+        databaseStats: {
+          totalClients: dbClients.length,
+          activeClients: dbClients.filter(c => c.isActive).length,
+          inactiveClients: dbClients.filter(c => !c.isActive).length
+        },
+        synchronization: {
+          matchedCount: matchedClients.length,
+          dbOnlyCount: unmatchedDbClients.length,
+          serverOnlyCount: serverOnlyPeers.length,
+          syncHealthy: unmatchedDbClients.length === 0 && serverOnlyPeers.length === 0
+        },
+        details: {
+          matchedClients,
+          dbOnlyClients: unmatchedDbClients,
+          serverOnlyPeers
+        },
+        recommendations: this.generateSyncRecommendations(unmatchedDbClients.length, serverOnlyPeers.length)
+      };
+
+      console.log(`Diagnostics completed: ${matchedClients.length} matched, ${unmatchedDbClients.length} DB-only, ${serverOnlyPeers.length} server-only`);
+      return diagnostics;
+    } catch (error) {
+      console.error('Failed to get diagnostics:', error);
+      throw error;
+    }
+  }
+
+  private generateSyncRecommendations(dbOnlyCount: number, serverOnlyCount: number): string[] {
+    const recommendations = [];
+
+    if (dbOnlyCount > 0) {
+      recommendations.push(
+        `Found ${dbOnlyCount} clients in database but not on server. These clients may need to be re-added to WireGuard or cleaned up from database.`
+      );
+    }
+
+    if (serverOnlyCount > 0) {
+      recommendations.push(
+        `Found ${serverOnlyCount} peers on server but not in database. These may be manually added peers or orphaned configurations.`
+      );
+    }
+
+    if (dbOnlyCount === 0 && serverOnlyCount === 0) {
+      recommendations.push('✅ Database and server are perfectly synchronized!');
+    } else {
+      recommendations.push('🔄 Run POST /clients/sync-stats to update database with current server statistics.');
+    }
+
+    return recommendations;
   }
 
   private parseBytesString(bytesStr: string): number {

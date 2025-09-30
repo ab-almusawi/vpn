@@ -89,6 +89,44 @@ export class ClientsController {
     return await this.clientsService.getClientsOverview();
   }
 
+  @Post('sync-stats')
+  @ApiOperation({
+    summary: 'Manually synchronize client statistics',
+    description: 'Manually trigger synchronization between WireGuard server and database client statistics'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Stats synchronization completed successfully',
+    example: {
+      success: true,
+      message: 'Client statistics synchronized successfully',
+      updatedClients: 3,
+      timestamp: '2024-01-01T12:00:00.000Z'
+    }
+  })
+  async syncClientStats() {
+    const startTime = new Date();
+    await this.clientsService.updateClientStats();
+    return {
+      success: true,
+      message: 'Client statistics synchronized successfully',
+      timestamp: startTime.toISOString()
+    };
+  }
+
+  @Get('diagnostics')
+  @ApiOperation({
+    summary: 'Get client-server synchronization diagnostics',
+    description: 'Compare database clients with actual WireGuard server peers for debugging sync issues'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Diagnostics retrieved successfully'
+  })
+  async getClientDiagnostics() {
+    return await this.clientsService.getDiagnostics();
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Get client by ID',

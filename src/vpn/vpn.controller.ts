@@ -193,4 +193,109 @@ export class VpnController {
   async validateWireGuardConfig() {
     return await this.wireguardService.validateWireGuardConfig();
   }
+
+  @Post('interface/up')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Start WireGuard interface',
+    description: 'Execute "wg-quick up wg0" to start the WireGuard VPN interface'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'WireGuard interface started successfully',
+    example: {
+      success: true,
+      message: 'WireGuard interface wg0 started successfully',
+      interface: 'wg0',
+      timestamp: '2025-01-01T12:00:00.000Z'
+    }
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Failed to start WireGuard interface'
+  })
+  async startWireGuardInterface() {
+    return await this.wireguardService.startInterface();
+  }
+
+  @Post('interface/down')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Stop WireGuard interface',
+    description: 'Execute "wg-quick down wg0" to stop the WireGuard VPN interface'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'WireGuard interface stopped successfully',
+    example: {
+      success: true,
+      message: 'WireGuard interface wg0 stopped successfully',
+      interface: 'wg0',
+      timestamp: '2024-01-01T12:00:00.000Z'
+    }
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Failed to stop WireGuard interface'
+  })
+  async stopWireGuardInterface() {
+    return await this.wireguardService.stopInterface();
+  }
+
+  @Post('service/restart')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Restart VPN API service',
+    description: 'Execute "systemctl restart vpn-api" to restart the VPN API service'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'VPN API service restart initiated successfully',
+    example: {
+      success: true,
+      message: 'VPN API service restart initiated successfully',
+      service: 'vpn-api',
+      timestamp: '2024-01-01T12:00:00.000Z',
+      warning: 'Service will restart shortly, API may be temporarily unavailable'
+    }
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Failed to restart VPN API service'
+  })
+  async restartVpnApiService() {
+    return await this.wireguardService.restartVpnApiService();
+  }
+
+  @Get('service/status')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get VPN service status',
+    description: 'Check the status of WireGuard interface and VPN API service'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Service status retrieved successfully',
+    example: {
+      wireguard: {
+        interface: 'wg0',
+        status: 'active',
+        uptime: '2 days, 5 hours',
+        peers: 3
+      },
+      vpnApiService: {
+        service: 'vpn-api',
+        status: 'active',
+        uptime: '1 day, 12 hours'
+      },
+      timestamp: '2024-01-01T12:00:00.000Z'
+    }
+  })
+  async getServiceStatus() {
+    return await this.wireguardService.getServiceStatus();
+  }
 }

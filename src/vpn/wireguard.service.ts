@@ -12,6 +12,25 @@ const execAsync = promisify(exec);
 export class WireguardService {
   constructor(private configService: ConfigService) {}
 
+  private async executeSudoCommand(command: string): Promise<{ stdout: string; stderr: string }> {
+    const sudoMethod = this.configService.get('SUDO_METHOD', 'passwordless');
+    
+    if (sudoMethod === 'password') {
+      const sudoPassword = this.configService.get('SUDO_PASSWORD');
+      if (!sudoPassword) {
+        throw new Error('SUDO_PASSWORD not configured but SUDO_METHOD is set to password');
+      }
+      
+      // Use echo to pipe password to sudo
+      const secureCommand = `echo '${sudoPassword}' | sudo -S ${command}`;
+      return await execAsync(secureCommand);
+    } else {
+      // Use passwordless sudo (recommended)
+      const sudoCommand = `sudo ${command}`;
+      return await execAsync(sudoCommand);
+    }
+  }
+
   async generateKeyPair(): Promise<{ publicKey: string; privateKey: string; presharedKey: string }> {
     try {
       const { stdout: privateKey } = await execAsync('wg genkey');
@@ -287,37 +306,68 @@ AllowedIPs = ${client.vpnIp}/32`;
   async getServerStats() {
     try {
       const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
+      console.log(`Getting server stats for interface: ${interface$}`);
+      
       const { stdout } = await execAsync(`wg show ${interface$}`);
+      console.log('Raw WireGuard output:', stdout);
       
       const lines = stdout.trim().split('\n');
       const peers = [];
       let currentPeer = null;
 
       for (const line of lines) {
-        if (line.startsWith('peer ')) {
+        const trimmedLine = line.trim();
+        
+        // Look for peer lines starting with "peer: "
+        if (trimmedLine.startsWith('peer: ')) {
           if (currentPeer) peers.push(currentPeer);
-          currentPeer = { publicKey: line.split(' ')[1] };
-        } else if (currentPeer && line.includes('latest handshake')) {
-          const handshakeMatch = line.match(/latest handshake: (.+)/);
+          currentPeer = { 
+            publicKey: trimmedLine.split('peer: ')[1],
+            lastHandshake: null,
+            bytesReceived: '0 B',
+            bytesSent: '0 B'
+          };
+          console.log(`Found peer: ${currentPeer.publicKey}`);
+        } else if (currentPeer && trimmedLine.includes('latest handshake:')) {
+          const handshakeMatch = trimmedLine.match(/latest handshake: (.+)/);
           if (handshakeMatch) {
             currentPeer.lastHandshake = handshakeMatch[1];
+            console.log(`  - Last handshake: ${currentPeer.lastHandshake}`);
           }
-        } else if (currentPeer && line.includes('transfer')) {
-          const transferMatch = line.match(/transfer: (.+) received, (.+) sent/);
+        } else if (currentPeer && trimmedLine.includes('transfer:')) {
+          // Parse: "transfer: 37.94 MiB received, 1.41 GiB sent"
+          const transferMatch = trimmedLine.match(/transfer: (.+) received, (.+) sent/);
           if (transferMatch) {
             currentPeer.bytesReceived = transferMatch[1];
             currentPeer.bytesSent = transferMatch[2];
+            console.log(`  - Transfer: ${currentPeer.bytesReceived} received, ${currentPeer.bytesSent} sent`);
+          }
+        } else if (currentPeer && trimmedLine.includes('allowed ips:')) {
+          const allowedIpsMatch = trimmedLine.match(/allowed ips: (.+)/);
+          if (allowedIpsMatch) {
+            currentPeer.allowedIps = allowedIpsMatch[1];
+            console.log(`  - Allowed IPs: ${currentPeer.allowedIps}`);
+          }
+        } else if (currentPeer && trimmedLine.includes('endpoint:')) {
+          const endpointMatch = trimmedLine.match(/endpoint: (.+)/);
+          if (endpointMatch) {
+            currentPeer.endpoint = endpointMatch[1];
+            console.log(`  - Endpoint: ${currentPeer.endpoint}`);
           }
         }
       }
 
+      // Don't forget the last peer
       if (currentPeer) peers.push(currentPeer);
 
-      return {
+      const result = {
         interface: interface$,
         peers,
         totalPeers: peers.length,
       };
+
+      console.log(`Found ${peers.length} peers on ${interface$}`);
+      return result;
     } catch (error) {
       console.error('Failed to get server stats:', error);
       return {
@@ -420,5 +470,229 @@ AllowedIPs = ${client.vpnIp}/32`;
       isValid: errors.length === 0,
       errors,
     };
+  }
+
+  async startInterface() {
+    try {
+      const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
+      console.log(`Starting WireGuard interface: ${interface$}`);
+
+      // Check if interface is already up
+      try {
+        const { stdout } = await execAsync(`wg show ${interface$}`);
+        if (stdout.trim()) {
+          return {
+            success: true,
+            message: `WireGuard interface ${interface$} is already running`,
+            interface: interface$,
+            timestamp: new Date().toISOString(),
+            alreadyRunning: true
+          };
+        }
+      } catch (error) {
+        // Interface not running, continue with startup
+        console.log(`Interface ${interface$} is not running, proceeding to start...`);
+      }
+
+      // Start the interface using secure sudo execution
+      const { stdout, stderr } = await this.executeSudoCommand(`wg-quick up ${interface$}`);
+      
+      console.log(`WireGuard interface ${interface$} started successfully`);
+      console.log('Command output:', stdout);
+      
+      if (stderr) {
+        console.warn('Command warnings:', stderr);
+      }
+
+      return {
+        success: true,
+        message: `WireGuard interface ${interface$} started successfully`,
+        interface: interface$,
+        timestamp: new Date().toISOString(),
+        output: stdout,
+        warnings: stderr || null
+      };
+    } catch (error) {
+      console.error('Failed to start WireGuard interface:', error);
+      throw new Error(`Failed to start WireGuard interface: ${error.message}`);
+    }
+  }
+
+  async stopInterface() {
+    try {
+      const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
+      console.log(`Stopping WireGuard interface: ${interface$}`);
+
+      // Check if interface is running
+      try {
+        await execAsync(`wg show ${interface$}`);
+      } catch (error) {
+        return {
+          success: true,
+          message: `WireGuard interface ${interface$} is already stopped`,
+          interface: interface$,
+          timestamp: new Date().toISOString(),
+          alreadyStopped: true
+        };
+      }
+
+      // Stop the interface using secure sudo execution
+      const { stdout, stderr } = await this.executeSudoCommand(`wg-quick down ${interface$}`);
+      
+      console.log(`WireGuard interface ${interface$} stopped successfully`);
+      console.log('Command output:', stdout);
+      
+      if (stderr) {
+        console.warn('Command warnings:', stderr);
+      }
+
+      return {
+        success: true,
+        message: `WireGuard interface ${interface$} stopped successfully`,
+        interface: interface$,
+        timestamp: new Date().toISOString(),
+        output: stdout,
+        warnings: stderr || null
+      };
+    } catch (error) {
+      console.error('Failed to stop WireGuard interface:', error);
+      throw new Error(`Failed to stop WireGuard interface: ${error.message}`);
+    }
+  }
+
+  async restartVpnApiService() {
+    try {
+      const serviceName = this.configService.get('VPN_SERVICE_NAME', 'vpn-api');
+      console.log(`Restarting VPN API service: ${serviceName}`);
+
+      // Note: This will restart the current process, so the response might not be delivered
+      // We'll use a delayed restart to allow the response to be sent first
+      setTimeout(async () => {
+        try {
+          await this.executeSudoCommand(`systemctl restart ${serviceName}`);
+          console.log(`VPN API service ${serviceName} restarted successfully`);
+        } catch (error) {
+          console.error(`Failed to restart VPN API service: ${error.message}`);
+        }
+      }, 1000); // 1 second delay
+
+      return {
+        success: true,
+        message: 'VPN API service restart initiated successfully',
+        service: serviceName,
+        timestamp: new Date().toISOString(),
+        warning: 'Service will restart shortly, API may be temporarily unavailable'
+      };
+    } catch (error) {
+      console.error('Failed to initiate VPN API service restart:', error);
+      throw new Error(`Failed to restart VPN API service: ${error.message}`);
+    }
+  }
+
+  async getServiceStatus() {
+    try {
+      const interface$ = this.configService.get('WIREGUARD_INTERFACE', 'wg0');
+      const serviceName = this.configService.get('VPN_SERVICE_NAME', 'vpn-api');
+
+      // Get WireGuard interface status
+      let wireguardStatus;
+      try {
+        const { stdout } = await execAsync(`wg show ${interface$}`);
+        const peers = stdout.split('peer ').length - 1;
+        
+        // Try to get interface uptime/status from systemd
+        let uptime = 'unknown';
+        try {
+          const { stdout: statusOutput } = await this.executeSudoCommand(`systemctl status wg-quick@${interface$} --no-pager -l`);
+          const uptimeMatch = statusOutput.match(/Active: active \(exited\) since (.+?);/);
+          if (uptimeMatch) {
+            const startTime = new Date(uptimeMatch[1]);
+            const now = new Date();
+            const diffMs = now.getTime() - startTime.getTime();
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+            
+            if (diffDays > 0) {
+              uptime = `${diffDays} days, ${diffHours} hours`;
+            } else if (diffHours > 0) {
+              uptime = `${diffHours} hours, ${diffMinutes} minutes`;
+            } else {
+              uptime = `${diffMinutes} minutes`;
+            }
+          }
+        } catch (error) {
+          console.warn('Could not get interface uptime:', error.message);
+        }
+
+        wireguardStatus = {
+          interface: interface$,
+          status: 'active',
+          uptime,
+          peers,
+          details: 'Interface is running with active peers'
+        };
+      } catch (error) {
+        wireguardStatus = {
+          interface: interface$,
+          status: 'inactive',
+          uptime: 'N/A',
+          peers: 0,
+          details: 'Interface is not running',
+          error: error.message
+        };
+      }
+
+      // Get VPN API service status
+      let vpnApiStatus;
+      try {
+        const { stdout } = await this.executeSudoCommand(`systemctl status ${serviceName} --no-pager -l`);
+        
+        const isActive = stdout.includes('Active: active (running)');
+        let uptime = 'unknown';
+        
+        const uptimeMatch = stdout.match(/Active: active \(running\) since (.+?);/);
+        if (uptimeMatch) {
+          const startTime = new Date(uptimeMatch[1]);
+          const now = new Date();
+          const diffMs = now.getTime() - startTime.getTime();
+          const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+          const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+          
+          if (diffDays > 0) {
+            uptime = `${diffDays} days, ${diffHours} hours`;
+          } else if (diffHours > 0) {
+            uptime = `${diffHours} hours, ${diffMinutes} minutes`;
+          } else {
+            uptime = `${diffMinutes} minutes`;
+          }
+        }
+
+        vpnApiStatus = {
+          service: serviceName,
+          status: isActive ? 'active' : 'inactive',
+          uptime,
+          details: isActive ? 'Service is running normally' : 'Service is not active'
+        };
+      } catch (error) {
+        vpnApiStatus = {
+          service: serviceName,
+          status: 'unknown',
+          uptime: 'N/A',
+          details: 'Could not determine service status',
+          error: error.message
+        };
+      }
+
+      return {
+        wireguard: wireguardStatus,
+        vpnApiService: vpnApiStatus,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('Failed to get service status:', error);
+      throw new Error(`Failed to get service status: ${error.message}`);
+    }
   }
 }
