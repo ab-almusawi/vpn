@@ -57,7 +57,7 @@ export class VpnService {
         serverPublicKey,
         serverEndpoint,
         assignedIp: client.vpnIp,
-        dns: '8.8.8.8, 8.8.4.4',
+        dns: '172.16.0.1',
       },
       clientKeys: {
         privateKey: client.privateKey,
