@@ -64,8 +64,8 @@ export class WireguardService {
 
     const config = `[Interface]
 ${privateKeyLine}
-Address = ${client.vpnIp}/16
-DNS = 8.8.8.8, 8.8.4.4
+Address = ${client.vpnIp}/32
+DNS = 172.16.0.1
 
 [Peer]
 PublicKey = ${serverPublicKey}
